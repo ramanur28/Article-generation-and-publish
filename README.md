@@ -74,7 +74,22 @@ This generates the static frontend in `/dist` and cleans the project.
 npm start
 ```
 
-### Self-Hosting (Node.js/Docker)
+### 🐋 Docker Deployment
+This app can be containerized using the provided `Dockerfile`.
+
+1. **Build the Docker Image**:
+   ```bash
+   docker build -t wp-article-automator .
+   ```
+
+2. **Run the Container**:
+   ```bash
+   docker run -p 3000:3000 \
+     -e GEMINI_API_KEY=your_gemini_api_key_here \
+     wp-article-automator
+   ```
+
+### Self-Hosting (Node.js/Cloud)
 The application includes a built-in Express server (`server.ts`) that serves the frontend and handles the WordPress API proxy. It is designed to be easily containerized for services like **Google Cloud Run**, **Render**, or **DigitalOcean**.
 
 ---

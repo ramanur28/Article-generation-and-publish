@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.git
+README.md
+Dockerfile
+.dockerignore
+firebase-applet-config.json
