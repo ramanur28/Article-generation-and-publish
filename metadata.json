@@ -1,0 +1,6 @@
+{
+  "name": "WordPress Article Automator",
+  "description": "Automatically generates SEO-optimized articles using Gemini AI and schedules them to your WordPress site with SiteSEO support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
