@@ -3,6 +3,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import axios from "axios";
 import cors from "cors";
+import { GoogleGenAI } from "@google/genai";
 
 async function startServer() {
   const app = express();
@@ -10,6 +11,34 @@ async function startServer() {
 
   app.use(express.json({ limit: '10mb' }));
   app.use(cors());
+
+  // Gemini API Initialization Helper
+  const getAI = (requestKey?: string) => {
+    const apiKey = requestKey || process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not set. Please provide it in settings or environment.");
+    }
+    return new GoogleGenAI({ apiKey });
+  };
+
+  // Gemini Generation Endpoint
+  app.post("/api/ai/generate", async (req, res) => {
+    try {
+      const { model, contents, config, apiKey } = req.body;
+      const genAI = getAI(apiKey);
+      
+      const response = await genAI.models.generateContent({
+        model: model || "gemini-3-flash-preview",
+        contents,
+        config
+      });
+
+      res.json({ text: response.text });
+    } catch (error: any) {
+      console.error("Gemini Error:", error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Proxy endpoint for WordPress to avoid CORS issues
   app.post("/api/wp-proxy", async (req, res) => {
@@ -101,6 +130,9 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    if (!process.env.GEMINI_API_KEY) {
+      console.warn("WARNING: GEMINI_API_KEY is not set. AI generation will fail.");
+    }
   });
 }
 

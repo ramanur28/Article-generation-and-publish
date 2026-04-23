@@ -3,6 +3,8 @@ export interface WPSettings {
   username: string;
   appPassword: string;
   promptTemplate: string;
+  aiModel?: string;
+  geminiApiKey?: string;
 }
 
 export interface ArticleInfo {

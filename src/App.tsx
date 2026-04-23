@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
-import { GoogleGenAI, Type } from "@google/genai";
-import { Settings, FileText, Send, Loader2, CheckCircle2, AlertCircle, Cog, LogOut, Lock } from "lucide-react";
+import { FileText, Send, Loader2, CheckCircle2, AlertCircle, Cog, LogOut, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { WPSettings, ArticleInfo, ArticleSEO, GenerationState } from "./types";
 import { auth } from "./lib/firebase";
 import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth";
+import { Type } from "@google/genai";
 
 const ALLOWED_EMAIL = "ramanur321@gmail.com";
 
@@ -26,7 +26,9 @@ export default function App() {
       url: "",
       username: "",
       appPassword: "",
-      promptTemplate: DEFAULT_PROMPT
+      promptTemplate: DEFAULT_PROMPT,
+      aiModel: "gemini-3-flash-preview",
+      geminiApiKey: ""
     };
   });
 
@@ -37,8 +39,13 @@ export default function App() {
     imageId: "",
     publishDate: (() => {
       const now = new Date();
-      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-      return now.toISOString().slice(0, 16);
+      // Format as YYYY-MM-DDTHH:mm for datetime-local input
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
     })()
   });
 
@@ -118,80 +125,115 @@ export default function App() {
       setLastNotifiedStage("");
       setGenState({ stage: "outline", progress: 10 });
 
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-
       // Step 1: Generate Outline and SEO Meta
-      const outlineResponse = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `You are an SEO expert. Based on the following information, generate an optimized article outline and meta data.
-        Title: ${articleInfo.title}
-        Topic: ${articleInfo.topic}
-        Focus Keyphrase: ${articleInfo.focusKeyphrase}
-        
-        Information required:
-        - Meta Title (SEO title)
-        - Meta Description (brief, compelling)
-        - Slug (URL friendly)
-        - Comprehensive Outline (H2, H3 headings)
-        - Excerpt (summary for WP)
-        - Suggested Category (one name)
-        - Suggested Tags (array of strings)
-
-        Return response in JSON format.`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              metaTitle: { type: Type.STRING },
-              metaDescription: { type: Type.STRING },
-              focusKeyphrase: { type: Type.STRING },
-              slug: { type: Type.STRING },
-              outline: { type: Type.STRING },
-              excerpt: { type: Type.STRING },
-              category: { type: Type.STRING },
-              tags: { type: Type.ARRAY, items: { type: Type.STRING } }
-            },
-            required: ["metaTitle", "metaDescription", "focusKeyphrase", "slug", "outline", "excerpt", "category", "tags"]
+      const outlineResponse = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: settings.aiModel || "gemini-3-flash-preview",
+          apiKey: settings.geminiApiKey,
+          contents: `You are an SEO expert. Based on the following information, generate an optimized article outline and meta data.
+          Title: ${articleInfo.title}
+          Topic: ${articleInfo.topic}
+          Focus Keyphrase: ${articleInfo.focusKeyphrase}
+          
+          Information required:
+          - Meta Title (SEO title)
+          - Meta Description (brief, compelling)
+          - Slug (URL friendly)
+          - Comprehensive Outline (H2, H3 headings)
+          - Excerpt (summary for WP)
+          - Suggested Category (one name)
+          - Suggested Tags (array of strings)
+  
+          Return response in JSON format.`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                metaTitle: { type: Type.STRING },
+                metaDescription: { type: Type.STRING },
+                focusKeyphrase: { type: Type.STRING },
+                slug: { type: Type.STRING },
+                outline: { type: Type.STRING },
+                excerpt: { type: Type.STRING },
+                category: { type: Type.STRING },
+                tags: { type: Type.ARRAY, items: { type: Type.STRING } }
+              },
+              required: ["metaTitle", "metaDescription", "focusKeyphrase", "slug", "outline", "excerpt", "category", "tags"]
+            }
           }
-        }
+        })
       });
 
-      const parsedSEO = JSON.parse(outlineResponse.text) as ArticleSEO;
+      if (!outlineResponse.ok) {
+        const error = await outlineResponse.json();
+        throw new Error(error.error || "Failed to generate outline");
+      }
+
+      const outlineData = await outlineResponse.json();
+      
+      // Sanitizing JSON response in case AI includes markdown blocks
+      const cleanJson = outlineData.text.replace(/```json\n?|```/g, "").trim();
+      const parsedSEO = JSON.parse(cleanJson) as ArticleSEO;
+      
       setSeoData(parsedSEO);
       setGenState({ stage: "content_part1", progress: 30 });
 
       // Step 2: Generate Content Part 1
-      const part1Response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Generate the FIRST HALF of an article based on this outline:
-        ${parsedSEO.outline}
-        
-        Article Details:
-        Title: ${parsedSEO.metaTitle}
-        Focus Keyphrase: ${articleInfo.focusKeyphrase}
-        Writing Strategy: ${settings.promptTemplate}
-        
-        Instructions: Write about 600-700 words covering the first half of the outline. Use HTML tags for formatting (p, h2, h3, ul, li). Do NOT conclude yet. Focus on quality and flow.`
+      const part1Response = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: settings.aiModel || "gemini-3-flash-preview",
+          apiKey: settings.geminiApiKey,
+          contents: `Generate the FIRST HALF of an article based on this outline:
+          ${parsedSEO.outline}
+          
+          Article Details:
+          Title: ${parsedSEO.metaTitle}
+          Focus Keyphrase: ${articleInfo.focusKeyphrase}
+          Writing Strategy: ${settings.promptTemplate}
+          
+          Instructions: Write about 600-700 words covering the first half of the outline. Use HTML tags for formatting (p, h2, h3, ul, li). Do NOT conclude yet. Focus on quality and flow.`
+        })
       });
 
-      let fullContent = part1Response.text;
+      if (!part1Response.ok) {
+        const error = await part1Response.json();
+        throw new Error(error.error || "Failed to generate content part 1");
+      }
+
+      const part1Data = await part1Response.json();
+      let fullContent = part1Data.text;
       setContent(fullContent);
       setGenState({ stage: "content_part2", progress: 60 });
 
       // Step 3: Generate Content Part 2
-      const part2Response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Generate the SECOND HALF and CONCLUSION of the article.
-        
-        Previous Content Summary: ${fullContent.slice(-1000)}
-        Original Outline: ${parsedSEO.outline}
-        Writing Strategy: ${settings.promptTemplate}
-        
-        Instructions: Write finishing 600-700 words completing the article based on the remaining outline points. Ensure a strong conclusion. Use HTML formatting (p, h2, h3, ul, li). Maintain the same tone as the previous part.`
+      const part2Response = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: settings.aiModel || "gemini-3-flash-preview",
+          apiKey: settings.geminiApiKey,
+          contents: `Generate the SECOND HALF and CONCLUSION of the article.
+          
+          Previous Content Summary: ${fullContent.slice(-1000)}
+          Original Outline: ${parsedSEO.outline}
+          Writing Strategy: ${settings.promptTemplate}
+          
+          Instructions: Write finishing 600-700 words completing the article based on the remaining outline points. Ensure a strong conclusion. Use HTML formatting (p, h2, h3, ul, li). Maintain the same tone as the previous part.`
+        })
       });
 
-      fullContent += "\n" + part2Response.text;
+      if (!part2Response.ok) {
+        const error = await part2Response.json();
+        throw new Error(error.error || "Failed to generate content part 2");
+      }
+
+      const part2Data = await part2Response.json();
+      fullContent += "\n" + part2Data.text;
       setContent(fullContent);
       setGenState({ stage: "idle", progress: 100 });
 
@@ -203,6 +245,10 @@ export default function App() {
 
   const handlePublish = async () => {
     if (!seoData || !content) return;
+    if (!settings.url) {
+      setGenState(prev => ({ ...prev, stage: "idle", error: "Please configure WordPress Site URL in settings." }));
+      return;
+    }
 
     try {
       setGenState(prev => ({ ...prev, stage: "publishing", progress: 90 }));
@@ -322,49 +368,81 @@ export default function App() {
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
-                  className="overflow-hidden border border-[#141414] bg-white p-6 rounded-lg"
+                  className="overflow-hidden border border-[#141414] bg-white p-6 rounded-lg space-y-8"
                 >
-                  <h2 className="text-lg font-serif italic mb-4">WordPress Settings</h2>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-[10px] uppercase tracking-wider opacity-50 block mb-1">Site URL</label>
-                      <input 
-                        type="url" 
-                        value={settings.url}
-                        onChange={e => setSettings({...settings, url: e.target.value})}
-                        placeholder="https://example.com"
-                        className="w-full border-b border-[#141414] py-1 text-sm focus:outline-none"
-                      />
+                  <section>
+                    <h2 className="text-lg font-serif italic mb-4 border-b border-[#141414]/10 pb-2">WordPress Settings</h2>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider opacity-50 block mb-1">Site URL</label>
+                        <input 
+                          type="url" 
+                          value={settings.url}
+                          onChange={e => setSettings({...settings, url: e.target.value})}
+                          placeholder="https://example.com"
+                          className="w-full border-b border-[#141414] py-1 text-sm focus:outline-none"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[10px] uppercase tracking-wider opacity-50 block mb-1">Username</label>
+                          <input 
+                            type="text" 
+                            value={settings.username}
+                            onChange={e => setSettings({...settings, username: e.target.value})}
+                            className="w-full border-b border-[#141414] py-1 text-sm focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] uppercase tracking-wider opacity-50 block mb-1">App Password</label>
+                          <input 
+                            type="password" 
+                            value={settings.appPassword}
+                            onChange={e => setSettings({...settings, appPassword: e.target.value})}
+                            placeholder="xxxx xxxx xxxx xxxx"
+                            className="w-full border-b border-[#141414] py-1 text-sm focus:outline-none"
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[10px] uppercase tracking-wider opacity-50 block mb-1">Username</label>
-                      <input 
-                        type="text" 
-                        value={settings.username}
-                        onChange={e => setSettings({...settings, username: e.target.value})}
-                        className="w-full border-b border-[#141414] py-1 text-sm focus:outline-none"
-                      />
+                  </section>
+
+                  <section>
+                    <h2 className="text-lg font-serif italic mb-4 border-b border-[#141414]/10 pb-2">AI Configuration</h2>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider opacity-50 block mb-1">Gemini API Key (Optional if set in .env)</label>
+                        <input 
+                          type="password" 
+                          value={settings.geminiApiKey || ""}
+                          onChange={e => setSettings({...settings, geminiApiKey: e.target.value})}
+                          placeholder="Paste your key here..."
+                          className="w-full border-b border-[#141414] py-1 text-sm focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider opacity-50 block mb-1">Gemini Model</label>
+                        <select 
+                          value={settings.aiModel || "gemini-3-flash-preview"}
+                          onChange={e => setSettings({...settings, aiModel: e.target.value})}
+                          className="w-full border-b border-[#141414] py-1 text-sm focus:outline-none bg-transparent"
+                        >
+                          <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast & Cost-Effective)</option>
+                          <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Higher Quality)</option>
+                          <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash (Experimental)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider opacity-50 block mb-1">Generation Prompt</label>
+                        <textarea 
+                          rows={3}
+                          value={settings.promptTemplate}
+                          onChange={e => setSettings({...settings, promptTemplate: e.target.value})}
+                          className="w-full border border-[#141414]/20 p-2 text-sm focus:outline-none rounded"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[10px] uppercase tracking-wider opacity-50 block mb-1">App Password</label>
-                      <input 
-                        type="password" 
-                        value={settings.appPassword}
-                        onChange={e => setSettings({...settings, appPassword: e.target.value})}
-                        placeholder="xxxx xxxx xxxx xxxx"
-                        className="w-full border-b border-[#141414] py-1 text-sm focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] uppercase tracking-wider opacity-50 block mb-1">Generation Prompt</label>
-                      <textarea 
-                        rows={4}
-                        value={settings.promptTemplate}
-                        onChange={e => setSettings({...settings, promptTemplate: e.target.value})}
-                        className="w-full border border-[#141414]/20 p-2 text-sm focus:outline-none rounded"
-                      />
-                    </div>
-                  </div>
+                  </section>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -528,7 +606,7 @@ export default function App() {
                         <input 
                           type="text" 
                           value={seoData.tags.join(", ")}
-                          onChange={e => setSeoData({...seoData, tags: e.target.value.split(",").map(t => t.trim())})}
+                          onChange={e => setSeoData({...seoData, tags: e.target.value.split(",").map(t => t.trim()).filter(t => t !== "")})}
                           className="w-full bg-transparent text-[10px] focus:outline-none border-b border-black/10"
                           placeholder="Tags (tag1, tag2...)"
                         />
