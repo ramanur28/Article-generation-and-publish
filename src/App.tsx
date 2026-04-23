@@ -295,6 +295,28 @@ export default function App() {
       }
 
       setGenState({ stage: "completed", progress: 100 });
+
+      // Reset form after a delay so user sees the success message
+      setTimeout(() => {
+        setArticleInfo({
+          focusKeyphrase: "",
+          title: "",
+          topic: "",
+          imageId: "",
+          publishDate: (() => {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            return `${year}-${month}-${day}T${hours}:${minutes}`;
+          })()
+        });
+        setSeoData(null);
+        setContent("");
+        setGenState({ stage: "idle", progress: 0 });
+      }, 5000); // 5 second delay to show success
     } catch (err: any) {
       console.error(err);
       setGenState(prev => ({ ...prev, stage: "idle", error: err.message }));
