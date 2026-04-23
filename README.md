@@ -89,6 +89,23 @@ This app can be containerized using the provided `Dockerfile`.
      wp-article-automator
    ```
 
+### 🛠️ Docker Compose (Recommended)
+The easiest way to run the application is using Docker Compose.
+
+1. **Create/Update your `.env` file**:
+   Ensure `GEMINI_API_KEY` is set.
+
+2. **Start the application**:
+   ```bash
+   docker compose up -d
+   ```
+   The app will be available at `http://localhost:3000`.
+
+3. **Stop the application**:
+   ```bash
+   docker compose down
+   ```
+
 ### Self-Hosting (Node.js/Cloud)
 The application includes a built-in Express server (`server.ts`) that serves the frontend and handles the WordPress API proxy. It is designed to be easily containerized for services like **Google Cloud Run**, **Render**, or **DigitalOcean**.
 

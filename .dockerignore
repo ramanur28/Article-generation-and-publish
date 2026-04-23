@@ -5,4 +5,3 @@ dist
 README.md
 Dockerfile
 .dockerignore
-firebase-applet-config.json
